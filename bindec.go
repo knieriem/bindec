@@ -2,6 +2,7 @@ package bin
 
 import (
 	"fmt"
+	"strings"
 )
 
 // decode binary values according to bit-, or value-wise descriptions
@@ -11,24 +12,51 @@ type Decoder interface {
 }
 
 type signal struct {
-	pos  uint
-	mask int
-	name string
+	pos    uint
+	mask   int
+	name   string
+	isFlag bool
+	negate bool
 }
 
 func Sig(pos uint, name string) Decoder {
-	return &signal{pos, 1 << pos, name}
+	return &signal{pos: pos, mask: 1 << pos, name: name}
+}
+
+func Flag(pos uint, name string) Decoder {
+	negate := false
+	if strings.HasPrefix(name, "!") {
+		negate = true
+		name = name[1:]
+	}
+	return &signal{pos: pos, mask: 1 << pos, name: name, isFlag: true, negate: negate}
 }
 
 func (s *signal) Decode(w []string, val int) (list []string) {
+	var str string
 	list = w
-	if val&s.mask != 0 {
-		if s.name == "<reserved>" {
-			list = append(list, fmt.Sprintf("bit %d: %s", s.pos, s.name))
+
+	v := val&s.mask != 0
+	if s.negate {
+		v = !v
+	}
+	switch {
+	case s.isFlag:
+		if v {
+			str = s.name
 		} else {
-			list = append(list, s.name)
+			str = "!" + s.name
+		}
+	case val&s.mask == 0:
+		return
+	default:
+		if s.name == "<reserved>" {
+			str = fmt.Sprintf("bit %d: %s", s.pos, s.name)
+		} else {
+			str = s.name
 		}
 	}
+	list = append(list, str)
 	return
 }
 
@@ -56,13 +84,53 @@ func (v *value) Decode(w []string, b int) (list []string) {
 	case v.dflt != "":
 		s = v.dflt
 	}
+	desc := v.desc
+	if desc != "" {
+		desc += ": "
+	}
 	switch s {
 	default:
-		list = append(list, v.desc+": "+s)
+		list = append(list, desc+s)
 	case "<reserved>":
-		list = append(list, fmt.Sprintf("%s: %d: %s", v.desc, b, s))
+		list = append(list, fmt.Sprintf("%s%d: %s", desc, b, s))
 	case "":
 	}
+	return
+}
+
+type intval struct {
+	pos    uint
+	mask   int
+	desc   string
+	format string
+	f      func(int) string
+}
+
+func Int(startBit, endBit uint, desc string, format string) Decoder {
+	mask := ((1 << (endBit + 1)) - 1) - ((1 << startBit) - 1)
+	return &intval{startBit, mask, desc, format, nil}
+}
+
+func Func(startBit, endBit uint, desc string, f func(int) string) Decoder {
+	mask := ((1 << (endBit + 1)) - 1) - ((1 << startBit) - 1)
+	return &intval{startBit, mask, desc, "", f}
+}
+
+func (v *intval) Decode(w []string, b int) (list []string) {
+	var s string
+
+	b = b & v.mask >> v.pos
+
+	if v.f == nil {
+		s = fmt.Sprintf(v.format, b)
+	} else {
+		s = v.f(b)
+	}
+	list = w
+	if v.desc == "" {
+		return
+	}
+	list = append(list, v.desc+": "+s)
 	return
 }
 
