@@ -180,7 +180,7 @@ func (g group) Decode(w []string, val int) []string {
 	} else {
 		w = append(w, g.name)
 		for _, s := range sub {
-			w = append(w, "  "+s)
+			w = append(w, "\t"+s)
 		}
 	}
 	return w
