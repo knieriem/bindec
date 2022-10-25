@@ -1,3 +1,6 @@
+// Package bindec implements decoding of integer values that
+// contain flags and bitfields, like hardware register values or
+// protocol fields.
 package bindec
 
 import (
@@ -5,8 +8,9 @@ import (
 	"strings"
 )
 
-// decode binary values according to bit-, or value-wise descriptions
-
+// A Decoder appends the decoded representation of the
+// given value [val] to a string slice [w], and returns the
+// resulting string slice.
 type Decoder interface {
 	Decode(w []string, val int) []string
 }
@@ -19,10 +23,18 @@ type signal struct {
 	negate bool
 }
 
+// Sig defines a signal Decoder. If a value at bit
+// position pos is 1, it will decode to name,
+// in case it is zero, it will be ignored.
 func Sig(pos uint, name string) Decoder {
 	return &signal{pos: pos, mask: 1 << pos, name: name}
 }
 
+// Flag defines a flag Decoder. If a value at bit
+// position pos is 1, it will decode to name,
+// in case it is zero, it will decode to "!"+name.
+// This behaviour can be inverted by prefixing
+// name with "!".
 func Flag(pos uint, name string) Decoder {
 	negate := false
 	if strings.HasPrefix(name, "!") {
@@ -68,6 +80,10 @@ type value struct {
 	dflt  string
 }
 
+// Val implements a value field Decoder. The value between
+// bit positions startBit and, including, endBit is mapped to
+// the corresponding element of the names slice,
+// using dflt if the slice is too short.
 func Val(startBit, endBit uint, desc string, names []string, dflt string) Decoder {
 	mask := ((1 << (endBit + 1)) - 1) - ((1 << startBit) - 1)
 	return &value{startBit, mask, desc, names, dflt}
@@ -106,11 +122,18 @@ type intval struct {
 	f      func(int) string
 }
 
+// Int implements an integer Decoder. The value between
+// bit positions startBit and, including, endBit is formatted
+// using [fmt.Sprintf].
 func Int(startBit, endBit uint, desc string, format string) Decoder {
 	mask := ((1 << (endBit + 1)) - 1) - ((1 << startBit) - 1)
 	return &intval{startBit, mask, desc, format, nil}
 }
 
+// Func defines an integer Decoder that, in contrast to Int,
+// doesn't use [fmt.Sprintf] to format the value, but rather
+// calls the specified function f to convert the integer value
+// between startBit and endBit to a string.
 func Func(startBit, endBit uint, desc string, f func(int) string) Decoder {
 	mask := ((1 << (endBit + 1)) - 1) - ((1 << startBit) - 1)
 	return &intval{startBit, mask, desc, "", f}
@@ -134,6 +157,7 @@ func (v *intval) Decode(w []string, b int) (list []string) {
 	return
 }
 
+// DecoderList defines a Decoder containing sub-Decoders.
 type DecoderList []Decoder
 
 func NewDecoderList(decoders ...[]Decoder) Decoder {
@@ -156,6 +180,7 @@ type shift struct {
 	d   Decoder
 }
 
+// Shift moves a given Decoder to a different bit position.
 func Shift(pos uint, d Decoder) Decoder {
 	return &shift{pos, d}
 }
@@ -169,6 +194,8 @@ type group struct {
 	d    Decoder
 }
 
+// Group attaches a name to a sub-decoder.
+// The output of the sub-decoder gets indented by tab characters.
 func Group(name string, d Decoder) Decoder {
 	return &group{name, d}
 }
